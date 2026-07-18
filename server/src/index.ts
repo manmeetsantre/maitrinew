@@ -74,7 +74,7 @@ const distPath = path.join(__dirname, "../../dist");
 app.use(express.static(distPath));
 
 // Fallback index.html serving for SPA routes
-app.get("*", (req, res, next) => {
+app.get("*splat", (req, res, next) => {
   if (req.path.startsWith("/auth") || 
       req.path.startsWith("/admin") || 
       req.path.startsWith("/profile") || 
