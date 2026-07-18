@@ -1,0 +1,2 @@
+- [x] Update style.css with modern color scheme (purple/blue gradient), glassmorphism cards, improved animations, gradient buttons, hover effects, better responsiveness.
+- [x] Update index.html to add a footer with links.

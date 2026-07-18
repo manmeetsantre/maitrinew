@@ -1,0 +1,160 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
+All colors MUST be HSL.
+*/
+
+@layer base {
+  :root {
+    /* Light Mode */
+    --background: 210 20% 98%;
+    --foreground: 220 40% 12%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 220 40% 12%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 220 40% 12%;
+
+    --primary: 190 85% 42%;
+    --primary-foreground: 210 20% 98%;
+
+    --secondary: 30 90% 48%;
+    --secondary-foreground: 210 20% 98%;
+
+    --muted: 220 15% 90%;
+    --muted-foreground: 220 20% 45%;
+
+    --accent: 270 50% 55%;
+    --accent-foreground: 210 20% 98%;
+
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 220 15% 85%;
+    --input: 220 15% 90%;
+    --ring: 190 85% 42%;
+
+    --radius: 0.75rem;
+    
+    /* Mental health support theme custom properties */
+    --glow-cyan: 190 85% 42%;
+    --glow-amber: 30 90% 48%;
+    --glow-purple: 270 50% 55%;
+    --calm-dark: 210 20% 98%;
+    --deep-calm: 210 15% 94%;
+    
+    /* Gradients */
+    --gradient-calm: radial-gradient(ellipse at center, hsl(0 0% 100%) 0%, hsl(210 15% 94%) 100%);
+    --gradient-glow: radial-gradient(circle at center, hsl(var(--glow-cyan) / 0.1), transparent 70%);
+    --gradient-aurora: linear-gradient(135deg, hsl(var(--glow-cyan) / 0.1), hsl(var(--glow-purple) / 0.1));
+    
+    /* Animations */
+    --transition-smooth: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    --pulse-duration: 2s;
+
+    --sidebar-background: 0 0% 98%;
+    --sidebar-foreground: 240 5.3% 26.1%;
+    --sidebar-primary: 240 5.9% 10%;
+    --sidebar-primary-foreground: 0 0% 98%;
+    --sidebar-accent: 240 4.8% 95.9%;
+    --sidebar-accent-foreground: 240 5.9% 10%;
+    --sidebar-border: 220 13% 91%;
+    --sidebar-ring: 217.2 91.2% 59.8%;
+  }
+
+  .dark {
+    /* Dark Mode */
+    --background: 220 30% 6%;
+    --foreground: 190 100% 95%;
+
+    --card: 220 25% 8%;
+    --card-foreground: 190 100% 95%;
+
+    --popover: 220 25% 10%;
+    --popover-foreground: 190 100% 95%;
+
+    --primary: 190 100% 50%;
+    --primary-foreground: 220 30% 6%;
+
+    --secondary: 30 100% 63%;
+    --secondary-foreground: 220 30% 6%;
+
+    --muted: 220 20% 15%;
+    --muted-foreground: 190 20% 60%;
+
+    --accent: 270 60% 65%;
+    --accent-foreground: 220 30% 6%;
+
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 220 20% 18%;
+    --input: 220 20% 15%;
+    --ring: 190 100% 50%;
+    
+    --glow-cyan: 190 100% 50%;
+    --glow-amber: 30 100% 63%;
+    --glow-purple: 270 60% 65%;
+    --calm-dark: 220 30% 6%;
+    --deep-calm: 220 25% 4%;
+    
+    --gradient-calm: radial-gradient(ellipse at center, hsl(220 25% 12%) 0%, hsl(220 30% 6%) 100%);
+    --gradient-glow: radial-gradient(circle at center, hsl(var(--glow-cyan) / 0.2), transparent 70%);
+    --gradient-aurora: linear-gradient(135deg, hsl(var(--glow-cyan) / 0.3), hsl(var(--glow-purple) / 0.3));
+  }
+}
+
+@layer utilities {
+  .glow-cyan {
+    box-shadow: 0 0 20px hsl(var(--glow-cyan) / 0.5), 0 0 40px hsl(var(--glow-cyan) / 0.3);
+  }
+  
+  .glow-amber {
+    box-shadow: 0 0 20px hsl(var(--glow-amber) / 0.5), 0 0 40px hsl(var(--glow-amber) / 0.3);
+  }
+  
+  .text-glow-cyan {
+    text-shadow: 0 0 10px hsl(var(--glow-cyan) / 0.8), 0 0 20px hsl(var(--glow-cyan) / 0.5);
+  }
+  
+  .pulse-glow {
+    animation: pulseGlow var(--pulse-duration) ease-in-out infinite;
+  }
+  
+  @keyframes pulseGlow {
+    0%, 100% {
+      opacity: 1;
+      filter: brightness(1);
+    }
+    50% {
+      opacity: 0.7;
+      filter: brightness(1.3);
+    }
+  }
+  
+  @keyframes float {
+    0%, 100% {
+      transform: translateY(0px);
+    }
+    50% {
+      transform: translateY(-10px);
+    }
+  }
+  
+  .animate-float {
+    animation: float 3s ease-in-out infinite;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+}

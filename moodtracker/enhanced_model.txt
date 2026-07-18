@@ -1,0 +1,1091 @@
+import os
+import sys
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from typing import List, Dict, Tuple, Optional, Union
+import warnings
+warnings.filterwarnings('ignore')
+
+# Set matplotlib style for better plots
+plt.style.use('default')
+sns.set_palette("husl")
+
+print(f"🐍 Python version: {sys.version}")
+print(f"📊 NumPy version: {np.__version__}")
+print(f"📈 Matplotlib version: {plt.matplotlib.__version__}")
+
+# TensorFlow imports with version compatibility
+try:
+    import tensorflow as tf
+    from tensorflow.keras.preprocessing.image import ImageDataGenerator
+    from tensorflow.keras.models import Sequential, Model, load_model
+    from tensorflow.keras.layers import (Conv2D, MaxPooling2D, Flatten, Dense, 
+                                       Dropout, BatchNormalization, GlobalAveragePooling2D,
+                                       Input, Concatenate, SeparableConv2D)
+    from tensorflow.keras.optimizers import Adam
+    from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau
+    from tensorflow.keras.applications import MobileNetV2
+    from tensorflow.keras.regularizers import l2
+    
+    print(f"✅ TensorFlow version: {tf.__version__}")
+    
+    # Configure TensorFlow for notebook environment
+    tf.config.experimental.set_memory_growth(tf.config.list_physical_devices('GPU')[0], True) if tf.config.list_physical_devices('GPU') else None
+    
+except ImportError as e:
+    print(f"❌ TensorFlow import error: {e}")
+    print("📦 Install with: !pip install tensorflow==2.10.0")
+
+# OpenCV import with fallback
+try:
+    import cv2
+    print(f"✅ OpenCV version: {cv2.__version__}")
+except ImportError:
+    print("📦 Installing OpenCV...")
+    !pip install opencv-python==4.8.0.76
+    import cv2
+
+# Scikit-learn imports
+try:
+    from sklearn.metrics import classification_report, confusion_matrix
+    import sklearn
+    print(f"✅ Scikit-learn version: {sklearn.__version__}")
+except ImportError:
+    print("📦 Installing scikit-learn...")
+    !pip install scikit-learn==1.3.0
+    from sklearn.metrics import classification_report, confusion_matrix
+
+# Configuration settings
+CONFIG = {
+    'DATA_DIR': '/Users/advait/Downloads/images',  # Update this path
+    'TARGET_SIZE': (48, 48),
+    'BATCH_SIZE': 32,
+    'EPOCHS': 80,
+    'LEARNING_RATE': 0.0005,
+    'MODEL_NAME': 'enhanced_emotion_model_robust_py310.h5',
+    'RANDOM_SEED': 42
+}
+
+# Set random seeds for reproducibility
+np.random.seed(CONFIG['RANDOM_SEED'])
+tf.random.set_seed(CONFIG['RANDOM_SEED'])
+
+print("🔧 Configuration loaded:")
+for key, value in CONFIG.items():
+    print(f"   {key}: {value}")
+
+class FaceDetector:
+    """Enhanced face detection using OpenCV Haar Cascades - Notebook optimized"""
+    
+    def __init__(self):
+        # Initialize Haar Cascade with error handling
+        cascade_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
+        if not os.path.exists(cascade_path):
+            raise FileNotFoundError(f"Haar cascade file not found at {cascade_path}")
+        
+        self.face_cascade = cv2.CascadeClassifier(cascade_path)
+        if self.face_cascade.empty():
+            raise ValueError("Failed to load Haar cascade classifier")
+        
+        print("✅ Face detector initialized successfully")
+    
+    def detect_and_extract_face(self, image_path_or_array: Union[str, np.ndarray], 
+                               target_size: Tuple[int, int] = (48, 48)) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Detect and extract face from image with error handling
+        
+        Args:
+            image_path_or_array: Image file path or numpy array
+            target_size: Target size for face extraction
+            
+        Returns:
+            Tuple of (face_gray, face_rgb) arrays
+        """
+        try:
+            # Load image with proper error handling
+            if isinstance(image_path_or_array, str):
+                if not os.path.exists(image_path_or_array):
+                    raise FileNotFoundError(f"Image file not found: {image_path_or_array}")
+                
+                img = cv2.imread(image_path_or_array)
+                if img is None:
+                    raise ValueError(f"Could not load image from {image_path_or_array}")
+            else:
+                img = image_path_or_array.copy()
+                if img is None or img.size == 0:
+                    raise ValueError("Invalid image array provided")
+            
+            # Convert to RGB for processing
+            img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            gray = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2GRAY)
+            
+            # Face detection with multiple scales
+            faces = self.face_cascade.detectMultiScale(
+                gray, 
+                scaleFactor=1.1, 
+                minNeighbors=5, 
+                minSize=(30, 30), 
+                maxSize=(500, 500),
+                flags=cv2.CASCADE_SCALE_IMAGE
+            )
+            
+            if len(faces) > 0:
+                # Use the largest detected face
+                largest_face = max(faces, key=lambda rect: rect[2] * rect[3])
+                x, y, w, h = largest_face
+                
+                # Add padding around face (10% on each side)
+                padding = int(min(w, h) * 0.1)
+                x = max(0, x - padding)
+                y = max(0, y - padding)
+                w = min(img_rgb.shape[1] - x, w + 2 * padding)
+                h = min(img_rgb.shape[0] - y, h + 2 * padding)
+                
+                face_img = img_rgb[y:y+h, x:x+w]
+                print(f"✅ Face detected at ({x}, {y}, {w}, {h})")
+            else:
+                # Fallback: Use center crop if no face detected
+                print("⚠️  No face detected, using center crop")
+                h, w = img_rgb.shape[:2]
+                size = min(h, w)
+                start_x = (w - size) // 2
+                start_y = (h - size) // 2
+                face_img = img_rgb[start_y:start_y+size, start_x:start_x+size]
+            
+            # Resize and convert to grayscale
+            if face_img.size == 0:
+                raise ValueError("Extracted face region is empty")
+                
+            face_img_resized = cv2.resize(face_img, target_size)
+            face_gray = cv2.cvtColor(face_img_resized, cv2.COLOR_RGB2GRAY)
+            
+            return face_gray, face_img_resized
+            
+        except Exception as e:
+            print(f"❌ Error in face detection: {str(e)}")
+            raise
+
+# Initialize face detector for later use
+face_detector = FaceDetector()
+
+def create_enhanced_emotion_model(input_shape: Tuple[int, int, int] = (48, 48, 1), 
+                                num_classes: int = 7) -> Model:
+    """
+    Enhanced CNN architecture compatible with Python 3.10.18 and TensorFlow 2.10+
+    
+    Args:
+        input_shape: Input image shape
+        num_classes: Number of emotion classes
+        
+    Returns:
+        Compiled Keras model
+    """
+    try:
+        print("🏗️  Building enhanced CNN architecture...")
+        
+        # Input layer with explicit shape validation
+        input_layer = Input(shape=input_shape, name='input_layer')
+        
+        # First convolutional block
+        x = Conv2D(32, (3, 3), activation='relu', padding='same', name='conv1_1')(input_layer)
+        x = BatchNormalization(name='bn1_1')(x)
+        x = Conv2D(32, (3, 3), activation='relu', padding='same', name='conv1_2')(x)
+        x = BatchNormalization(name='bn1_2')(x)
+        x = MaxPooling2D((2, 2), name='pool1')(x)
+        x = Dropout(0.25, name='dropout1')(x)
+        
+        # Second block with residual connection
+        residual = x
+        x = SeparableConv2D(64, (3, 3), activation='relu', padding='same', name='sepconv2_1')(x)
+        x = BatchNormalization(name='bn2_1')(x)
+        x = SeparableConv2D(64, (3, 3), activation='relu', padding='same', name='sepconv2_2')(x)
+        x = BatchNormalization(name='bn2_2')(x)
+        
+        # Residual connection with channel adjustment
+        if residual.shape[-1] != x.shape[-1]:
+            residual = Conv2D(64, (1, 1), padding='same', name='residual_conv')(residual)
+        
+        x = tf.keras.layers.Add(name='residual_add')([x, residual])
+        x = MaxPooling2D((2, 2), name='pool2')(x)
+        x = Dropout(0.25, name='dropout2')(x)
+        
+        # Third convolutional block
+        x = SeparableConv2D(128, (3, 3), activation='relu', padding='same', name='sepconv3_1')(x)
+        x = BatchNormalization(name='bn3_1')(x)
+        x = SeparableConv2D(128, (3, 3), activation='relu', padding='same', name='sepconv3_2')(x)
+        x = BatchNormalization(name='bn3_2')(x)
+        x = MaxPooling2D((2, 2), name='pool3')(x)
+        x = Dropout(0.3, name='dropout3')(x)
+        
+        # Fourth convolutional block
+        x = SeparableConv2D(256, (3, 3), activation='relu', padding='same', name='sepconv4_1')(x)
+        x = BatchNormalization(name='bn4_1')(x)
+        x = SeparableConv2D(256, (3, 3), activation='relu', padding='same', name='sepconv4_2')(x)
+        x = BatchNormalization(name='bn4_2')(x)
+        
+        # Global Average Pooling instead of Flatten
+        x = GlobalAveragePooling2D(name='global_avg_pool')(x)
+        
+        # Dense layers with L2 regularization
+        x = Dense(512, activation='relu', kernel_regularizer=l2(0.001), name='dense1')(x)
+        x = BatchNormalization(name='bn_dense1')(x)
+        x = Dropout(0.5, name='dropout_dense1')(x)
+        
+        x = Dense(256, activation='relu', kernel_regularizer=l2(0.001), name='dense2')(x)
+        x = BatchNormalization(name='bn_dense2')(x)
+        x = Dropout(0.5, name='dropout_dense2')(x)
+        
+        # Output layer
+        output = Dense(num_classes, activation='softmax', name='predictions')(x)
+        
+        # Create model
+        model = Model(inputs=input_layer, outputs=output, name='enhanced_emotion_model')
+        
+        print("✅ Enhanced model created successfully")
+        return model
+        
+    except Exception as e:
+        print(f"❌ Error creating model: {str(e)}")
+        raise
+
+# Create a sample model to verify architecture
+sample_model = create_enhanced_emotion_model()
+sample_model.summary()
+
+def setup_training(model: Model, learning_rate: float = 0.001) -> List:
+    """
+    Setup model compilation with optimized parameters for Python 3.10.18
+    
+    Args:
+        model: Keras model to compile
+        learning_rate: Initial learning rate
+        
+    Returns:
+        List of callbacks for training
+    """
+    try:
+        print("⚙️  Setting up training configuration...")
+        
+        # Compile model with explicit optimizer configuration
+        optimizer = Adam(
+            learning_rate=learning_rate,
+            beta_1=0.9,
+            beta_2=0.999,
+            epsilon=1e-8,
+            amsgrad=False
+        )
+        
+        model.compile(
+            optimizer=optimizer,
+            loss='categorical_crossentropy',
+            metrics=['accuracy', 'top_k_categorical_accuracy']
+        )
+        
+        # Enhanced callbacks with proper monitoring
+        callbacks = [
+            EarlyStopping(
+                monitor='val_accuracy', 
+                patience=8, 
+                restore_best_weights=True,
+                mode='max',
+                verbose=1,
+                min_delta=0.001
+            ),
+            ReduceLROnPlateau(
+                monitor='val_loss', 
+                factor=0.3, 
+                patience=4, 
+                min_lr=1e-7, 
+                verbose=1,
+                cooldown=2
+            ),
+            ModelCheckpoint(
+                CONFIG['MODEL_NAME'],
+                monitor='val_accuracy',
+                save_best_only=True,
+                mode='max',
+                verbose=1,
+                save_weights_only=False
+            )
+        ]
+        
+        print("✅ Training setup completed successfully")
+        return callbacks
+        
+    except Exception as e:
+        print(f"❌ Error in training setup: {str(e)}")
+        raise
+
+def create_data_generators():
+    """Create enhanced data generators for training and validation"""
+    
+    try:
+        print("📂 Setting up data generators...")
+        
+        # Verify data directories
+        train_dir = os.path.join(CONFIG['DATA_DIR'], 'train')
+        validation_dir = os.path.join(CONFIG['DATA_DIR'], 'validation')
+        
+        if not os.path.exists(train_dir):
+            raise FileNotFoundError(f"Training directory not found: {train_dir}")
+        if not os.path.exists(validation_dir):
+            raise FileNotFoundError(f"Validation directory not found: {validation_dir}")
+        
+        print(f"📁 Training data: {train_dir}")
+        print(f"📁 Validation data: {validation_dir}")
+        
+        # Enhanced data generators with stronger augmentation
+        train_datagen = ImageDataGenerator(
+            rescale=1./255,
+            rotation_range=30,
+            width_shift_range=0.2,
+            height_shift_range=0.2,
+            shear_range=0.3,
+            zoom_range=0.3,
+            horizontal_flip=True,
+            brightness_range=[0.7, 1.3],
+            fill_mode='nearest',
+            channel_shift_range=20.0
+        )
+        
+        validation_datagen = ImageDataGenerator(rescale=1./255)
+        
+        # Create generators
+        train_generator = train_datagen.flow_from_directory(
+            train_dir,
+            target_size=CONFIG['TARGET_SIZE'],
+            batch_size=CONFIG['BATCH_SIZE'],
+            class_mode='categorical',
+            color_mode='grayscale',
+            shuffle=True,
+            seed=CONFIG['RANDOM_SEED']
+        )
+        
+        validation_generator = validation_datagen.flow_from_directory(
+            validation_dir,
+            target_size=CONFIG['TARGET_SIZE'],
+            batch_size=CONFIG['BATCH_SIZE'],
+            class_mode='categorical',
+            color_mode='grayscale',
+            shuffle=False
+        )
+        
+        # Get class information
+        class_names = list(train_generator.class_indices.keys())
+        num_classes = len(class_names)
+        
+        print(f"📊 Dataset Info:")
+        print(f"   Classes: {class_names}")
+        print(f"   Number of classes: {num_classes}")
+        print(f"   Training samples: {train_generator.samples}")
+        print(f"   Validation samples: {validation_generator.samples}")
+        
+        return train_generator, validation_generator, class_names, num_classes
+        
+    except Exception as e:
+        print(f"❌ Error creating data generators: {str(e)}")
+        raise
+
+def train_enhanced_model():
+    """Train enhanced model using existing dataset - Notebook optimized"""
+    
+    try:
+        print("🚀 Starting Enhanced Model Training")
+        print("=" * 50)
+        
+        # Create data generators
+        train_generator, validation_generator, class_names, num_classes = create_data_generators()
+        
+        # Create enhanced model
+        print("\n🏗️  Building enhanced model...")
+        model = create_enhanced_emotion_model(
+            input_shape=(*CONFIG['TARGET_SIZE'], 1), 
+            num_classes=num_classes
+        )
+        
+        # Setup training
+        callbacks = setup_training(model, learning_rate=CONFIG['LEARNING_RATE'])
+        
+        # Display model architecture
+        print("\n📋 Model Architecture:")
+        model.summary()
+        
+        # Calculate steps
+        steps_per_epoch = max(1, train_generator.samples // train_generator.batch_size)
+        validation_steps = max(1, validation_generator.samples // validation_generator.batch_size)
+        
+        print(f"\n🏃‍♂️ Training Configuration:")
+        print(f"   Steps per epoch: {steps_per_epoch}")
+        print(f"   Validation steps: {validation_steps}")
+        print(f"   Epochs: {CONFIG['EPOCHS']}")
+        print(f"   Learning rate: {CONFIG['LEARNING_RATE']}")
+        
+        # Train model
+        print("\n🎯 Starting training...")
+        history = model.fit(
+            train_generator,
+            steps_per_epoch=steps_per_epoch,
+            epochs=CONFIG['EPOCHS'],
+            validation_data=validation_generator,
+            validation_steps=validation_steps,
+            callbacks=callbacks,
+            verbose=1,
+            workers=4,
+            use_multiprocessing=False
+        )
+        
+        print("✅ Training completed!")
+        
+        return model, history, class_names
+        
+    except Exception as e:
+        print(f"❌ Training failed: {str(e)}")
+        raise
+
+def plot_training_history(history) -> None:
+    """Plot training and validation metrics - Notebook optimized"""
+    
+    try:
+        print("📊 Plotting training history...")
+        
+        fig, axes = plt.subplots(2, 2, figsize=(15, 10))
+        fig.suptitle('Enhanced Model Training History', fontsize=16, fontweight='bold')
+        
+        # Accuracy
+        if 'accuracy' in history.history and 'val_accuracy' in history.history:
+            axes[0,0].plot(history.history['accuracy'], label='Training Accuracy', linewidth=2, color='blue')
+            axes[0,0].plot(history.history['val_accuracy'], label='Validation Accuracy', linewidth=2, color='orange')
+            axes[0,0].set_title('Model Accuracy', fontweight='bold')
+            axes[0,0].set_xlabel('Epoch')
+            axes[0,0].set_ylabel('Accuracy')
+            axes[0,0].legend()
+            axes[0,0].grid(True, alpha=0.3)
+        
+        # Loss
+        if 'loss' in history.history and 'val_loss' in history.history:
+            axes[0,1].plot(history.history['loss'], label='Training Loss', linewidth=2, color='red')
+            axes[0,1].plot(history.history['val_loss'], label='Validation Loss', linewidth=2, color='green')
+            axes[0,1].set_title('Model Loss', fontweight='bold')
+            axes[0,1].set_xlabel('Epoch')
+            axes[0,1].set_ylabel('Loss')
+            axes[0,1].legend()
+            axes[0,1].grid(True, alpha=0.3)
+        
+        # Learning Rate
+        if 'lr' in history.history:
+            axes[1,0].plot(history.history['lr'], linewidth=2, color='purple')
+            axes[1,0].set_title('Learning Rate Schedule', fontweight='bold')
+            axes[1,0].set_xlabel('Epoch')
+            axes[1,0].set_ylabel('Learning Rate')
+            axes[1,0].set_yscale('log')
+            axes[1,0].grid(True, alpha=0.3)
+        else:
+            axes[1,0].text(0.5, 0.5, 'Learning Rate\nNot Available', 
+                          ha='center', va='center', transform=axes[1,0].transAxes,
+                          fontsize=12, color='gray')
+        
+        # Top-k accuracy
+        if 'top_k_categorical_accuracy' in history.history:
+            axes[1,1].plot(history.history['top_k_categorical_accuracy'], 
+                          label='Training Top-3', linewidth=2, color='cyan')
+            axes[1,1].plot(history.history['val_top_k_categorical_accuracy'], 
+                          label='Validation Top-3', linewidth=2, color='magenta')
+            axes[1,1].set_title('Top-3 Accuracy', fontweight='bold')
+            axes[1,1].set_xlabel('Epoch')
+            axes[1,1].set_ylabel('Accuracy')
+            axes[1,1].legend()
+            axes[1,1].grid(True, alpha=0.3)
+        else:
+            axes[1,1].text(0.5, 0.5, 'Top-K Accuracy\nNot Available', 
+                          ha='center', va='center', transform=axes[1,1].transAxes,
+                          fontsize=12, color='gray')
+        
+        plt.tight_layout()
+        plt.savefig('training_history_notebook.png', dpi=300, bbox_inches='tight')
+        plt.show()
+        
+        print("✅ Training history plotted and saved")
+        
+    except Exception as e:
+        print(f"⚠️  Could not plot training history: {str(e)}")
+
+def evaluate_model(model: Model, validation_generator, class_names: List[str]) -> None:
+    """Comprehensive model evaluation - Notebook optimized"""
+    
+    try:
+        print("📈 Starting Model Evaluation")
+        print("=" * 50)
+        
+        # Reset generator
+        validation_generator.reset()
+        
+        # Get predictions
+        print("🔄 Generating predictions...")
+        steps = len(validation_generator)
+        predictions = model.predict(validation_generator, steps=steps, verbose=1)
+        
+        # Get true labels
+        y_true = validation_generator.classes
+        y_pred = np.argmax(predictions, axis=1)
+        
+        print(f"📊 Evaluation completed on {len(y_true)} samples")
+        
+        # Classification report
+        print("\n📋 Classification Report:")
+        print("-" * 60)
+        report = classification_report(y_true, y_pred, target_names=class_names, 
+                                     digits=4, zero_division=0)
+        print(report)
+        
+        # Confusion Matrix
+        print("\n🔍 Generating confusion matrix...")
+        cm = confusion_matrix(y_true, y_pred)
+        
+        plt.figure(figsize=(12, 10))
+        sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', 
+                    xticklabels=class_names, yticklabels=class_names,
+                    cbar_kws={'label': 'Count'}, square=True)
+        plt.title('Confusion Matrix - Enhanced Model', 
+                 fontsize=16, fontweight='bold', pad=20)
+        plt.xlabel('Predicted', fontsize=14)
+        plt.ylabel('Actual', fontsize=14)
+        plt.xticks(rotation=45, ha='right')
+        plt.yticks(rotation=0)
+        plt.tight_layout()
+        plt.savefig('confusion_matrix_notebook.png', dpi=300, bbox_inches='tight')
+        plt.show()
+        
+        # Per-class accuracy analysis
+        class_accuracies = np.divide(cm.diagonal(), cm.sum(axis=1), 
+                                   out=np.zeros_like(cm.diagonal(), dtype=float), 
+                                   where=cm.sum(axis=1)!=0)
+        
+        print(f"\n🎯 Per-class Performance:")
+        print("-" * 40)
+        for name, acc in zip(class_names, class_accuracies):
+            status = "🟢" if acc >= 0.8 else "🟡" if acc >= 0.6 else "🔴"
+            print(f"{status} {name:>12}: {acc:.4f} ({acc*100:.1f}%)")
+        
+        overall_accuracy = np.mean(y_true == y_pred)
+        print(f"\n🏆 Overall Accuracy: {overall_accuracy:.4f} ({overall_accuracy*100:.1f}%)")
+        
+        # Performance summary
+        print(f"\n📊 Evaluation Summary:")
+        print(f"   Total samples: {len(y_true)}")
+        print(f"   Correct predictions: {np.sum(y_true == y_pred)}")
+        print(f"   Incorrect predictions: {np.sum(y_true != y_pred)}")
+        
+        if overall_accuracy >= 0.8:
+            print("🎉 Excellent model performance!")
+        elif overall_accuracy >= 0.7:
+            print("👍 Good model performance!")
+        elif overall_accuracy >= 0.6:
+            print("🔧 Decent performance, room for improvement")
+        else:
+            print("⚠️  Model needs improvement - consider more training data or architecture changes")
+        
+    except Exception as e:
+        print(f"❌ Evaluation failed: {str(e)}")
+        raise
+
+class EnhancedEmotionDetector:
+    """Enhanced emotion detection system - Notebook optimized"""
+    
+    def __init__(self, model_path: Optional[str] = None, model: Optional[Model] = None):
+        """Initialize detector with model"""
+        try:
+            self.face_detector = FaceDetector()
+            
+            if model_path and os.path.exists(model_path):
+                print(f"📂 Loading model from {model_path}...")
+                self.model = load_model(model_path)
+                print("✅ Model loaded successfully")
+            elif model is not None:
+                self.model = model
+                print("✅ Model initialized successfully")
+            else:
+                raise ValueError("Either model_path (existing file) or model must be provided")
+            
+            # Default emotion classes - will be updated based on training
+            self.class_names = ['angry', 'disgust', 'fear', 'happy', 'sad', 'surprise', 'neutral']
+            
+        except Exception as e:
+            print(f"❌ Error initializing detector: {str(e)}")
+            raise
+    
+    def update_class_names(self, class_names: List[str]) -> None:
+        """Update class names based on dataset"""
+        self.class_names = class_names
+        print(f"✅ Updated class names: {class_names}")
+    
+    def detect_emotion(self, image_path_or_array: Union[str, np.ndarray], 
+                      visualize: bool = True) -> Optional[Dict]:
+        """Detect emotion from image with comprehensive preprocessing"""
+        try:
+            print(f"🔍 Processing image...")
+            
+            # Extract face from image
+            face_gray, face_rgb = self.face_detector.detect_and_extract_face(
+                image_path_or_array, target_size=CONFIG['TARGET_SIZE']
+            )
+            
+            # Preprocess for model
+            img_array = face_gray.astype(np.float32) / 255.0
+            img_array = np.expand_dims(img_array, axis=0)  # Batch dimension
+            img_array = np.expand_dims(img_array, axis=-1)  # Channel dimension
+            
+            print(f"📐 Input shape: {img_array.shape}")
+            
+            # Predict emotion
+            predictions = self.model.predict(img_array, verbose=0)
+            predicted_index = np.argmax(predictions[0])
+            predicted_class = self.class_names[predicted_index]
+            confidence = float(predictions[0][predicted_index] * 100)
+            
+            # Get top 3 predictions
+            top_3_indices = np.argsort(predictions[0])[-3:][::-1]
+            top_3_predictions = [
+                (self.class_names[i], float(predictions[0][i] * 100)) 
+                for i in top_3_indices
+            ]
+            
+            # Create results dictionary
+            results = {
+                'predicted_emotion': predicted_class,
+                'confidence': round(confidence, 2),
+                'top_3_predictions': [(name, round(conf, 2)) for name, conf in top_3_predictions],
+                'all_predictions': {name: round(float(predictions[0][i] * 100), 2) 
+                                  for i, name in enumerate(self.class_names)}
+            }
+            
+            if visualize:
+                self._visualize_prediction(face_rgb, predicted_class, confidence, top_3_predictions)
+            
+            print(f"✅ Detection completed: {predicted_class} ({confidence:.1f}%)")
+            return results
+            
+        except Exception as e:
+            print(f"❌ Error in emotion detection: {str(e)}")
+            return None
+    
+    def _visualize_prediction(self, face_img: np.ndarray, predicted_class: str, 
+                             confidence: float, top_3_predictions: List[Tuple[str, float]]) -> None:
+        """Internal method to visualize prediction results - Notebook optimized"""
+        
+        try:
+            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
+            
+            # Display face with enhanced styling
+            ax1.imshow(face_img)
+            ax1.set_title(f'Detected Face\nPredicted: {predicted_class} ({confidence:.1f}%)', 
+                         fontsize=14, fontweight='bold', pad=15)
+            ax1.axis('off')
+            
+            # Add border around face image
+            for spine in ax1.spines.values():
+                spine.set_visible(True)
+                spine.set_linewidth(2)
+                spine.set_color('gray')
+            
+            # Display top predictions as enhanced bar chart
+            emotions = [pred[0] for pred in top_3_predictions]
+            confidences = [pred[1] for pred in top_3_predictions]
+            
+            colors = ['#FF6B6B', '#4ECDC4', '#45B7D1']
+            bars = ax2.bar(emotions, confidences, color=colors[:len(emotions)], alpha=0.8)
+            ax2.set_title('Top 3 Predictions', fontsize=14, fontweight='bold', pad=15)
+            ax2.set_ylabel('Confidence (%)', fontsize=12)
+            ax2.set_ylim(0, 100)
+            ax2.grid(True, alpha=0.3, axis='y')
+            
+            # Add value labels on bars with better formatting
+            for bar, conf in zip(bars, confidences):
+                height = bar.get_height()
+                ax2.text(bar.get_x() + bar.get_width()/2., height + 2,
+                        f'{conf:.1f}%', ha='center', va='bottom', 
+                        fontsize=11, fontweight='bold')
+            
+            # Enhance x-axis labels
+            ax2.set_xticklabels(emotions, rotation=15, ha='right')
+            
+            plt.tight_layout()
+            plt.show()
+            
+        except Exception as e:
+            print(f"⚠️  Visualization error: {str(e)}")
+    
+    def batch_detect(self, image_paths: List[str], save_results: bool = False) -> List[Dict]:
+        """Process multiple images - Notebook optimized"""
+        results = []
+        
+        print(f"🔄 Processing {len(image_paths)} images...")
+        
+        for i, img_path in enumerate(image_paths):
+            print(f"\n📷 Processing image {i+1}/{len(image_paths)}: {img_path}")
+            
+            if not os.path.exists(img_path):
+                print(f"⚠️  File not found: {img_path}")
+                continue
+                
+            result = self.detect_emotion(img_path, visualize=False)
+            if result:
+                result['image_path'] = img_path
+                results.append(result)
+            else:
+                print(f"❌ Failed to process: {img_path}")
+        
+        if save_results and results:
+            try:
+                import json
+                output_file = 'emotion_detection_results_notebook.json'
+                with open(output_file, 'w', encoding='utf-8') as f:
+                    json.dump(results, f, indent=2, ensure_ascii=False)
+                print(f"💾 Results saved to {output_file}")
+            except Exception as e:
+                print(f"⚠️  Could not save results: {str(e)}")
+        
+        print(f"✅ Batch processing completed: {len(results)}/{len(image_paths)} successful")
+        return results
+
+# Execute the complete training pipeline
+def run_training_pipeline():
+    """Complete training pipeline for notebook execution"""
+    
+    print("🚀 ENHANCED EMOTION DETECTION - COMPLETE TRAINING PIPELINE")
+    print("=" * 70)
+    
+    try:
+        # Step 1: Train the model
+        print("\n1️⃣ TRAINING PHASE")
+        print("-" * 30)
+        model, history, class_names = train_enhanced_model()
+        
+        # Step 2: Visualize training
+        print("\n2️⃣ TRAINING VISUALIZATION")
+        print("-" * 30)
+        plot_training_history(history)
+        
+        # Step 3: Evaluate model
+        print("\n3️⃣ EVALUATION PHASE")
+        print("-" * 30)
+        # Recreate validation generator for evaluation
+        _, validation_generator, _, _ = create_data_generators()
+        evaluate_model(model, validation_generator, class_names)
+        
+        # Step 4: Initialize detector
+        print("\n4️⃣ DETECTOR INITIALIZATION")
+        print("-" * 30)
+        detector = EnhancedEmotionDetector(model=model)
+        detector.update_class_names(class_names)
+        
+        print("\n✅ TRAINING PIPELINE COMPLETED SUCCESSFULLY!")
+        print(f"📁 Model saved as: {CONFIG['MODEL_NAME']}")
+        
+        return model, detector, class_names
+        
+    except Exception as e:
+        print(f"❌ Training pipeline failed: {str(e)}")
+        raise
+
+def test_on_sample_images(detector):
+    """Test the detector on sample images - Notebook optimized"""
+    
+    print("🧪 TESTING ON SAMPLE IMAGES")
+    print("=" * 40)
+    
+    # Sample test images (add your own image paths here)
+    test_images = [
+        'anger.jpg',
+        'happy.jpg', 
+        'surprise.jpg',
+        'sad.jpg',
+        'neutral.jpg'
+    ]
+    
+    successful_tests = 0
+    
+    for i, img_path in enumerate(test_images):
+        print(f"\n📸 Test {i+1}/{len(test_images)}: {img_path}")
+        print("-" * 30)
+        
+        if os.path.exists(img_path):
+            result = detector.detect_emotion(img_path, visualize=True)
+            
+            if result:
+                successful_tests += 1
+                print(f"✅ Prediction: {result['predicted_emotion']} ({result['confidence']:.1f}%)")
+                
+                # Display confidence level
+                if result['confidence'] >= 70:
+                    print("🎯 HIGH CONFIDENCE")
+                elif result['confidence'] >= 50:
+                    print("⚡ MEDIUM CONFIDENCE") 
+                else:
+                    print("⚠️ LOW CONFIDENCE")
+                    
+                # Show all predictions
+                print("📊 All predictions:")
+                for emotion, conf in result['all_predictions'].items():
+                    bar = "█" * int(conf/10)
+                    print(f"   {emotion:>10}: {conf:>5.1f}% {bar}")
+            else:
+                print("❌ Detection failed")
+        else:
+            print(f"⚠️ Image not found: {img_path}")
+    
+    print(f"\n📈 Test Results: {successful_tests}/{len([p for p in test_images if os.path.exists(p)])} successful")
+
+def quick_emotion_test(image_path: str, detector=None):
+    """Quick function for testing single images in notebook"""
+    
+    if detector is None:
+        print("⚠️ No detector provided. Loading from saved model...")
+        if os.path.exists(CONFIG['MODEL_NAME']):
+            detector = EnhancedEmotionDetector(model_path=CONFIG['MODEL_NAME'])
+        else:
+            print("❌ No saved model found. Please train first.")
+            return None
+    
+    print(f"🔍 Quick test on: {image_path}")
+    result = detector.detect_emotion(image_path, visualize=True)
+    
+    if result:
+        print(f"\n🎯 Result: {result['predicted_emotion']} ({result['confidence']:.1f}%)")
+        return result
+    else:
+        print("❌ Test failed")
+        return None
+
+def compare_emotions(image_paths: List[str], detector=None):
+    """Compare emotion predictions across multiple images"""
+    
+    if detector is None:
+        print("⚠️ Loading detector from saved model...")
+        if os.path.exists(CONFIG['MODEL_NAME']):
+            detector = EnhancedEmotionDetector(model_path=CONFIG['MODEL_NAME'])
+        else:
+            print("❌ No saved model found.")
+            return
+    
+    results = []
+    
+    print("📊 EMOTION COMPARISON")
+    print("=" * 30)
+    
+    for i, img_path in enumerate(image_paths):
+        if os.path.exists(img_path):
+            result = detector.detect_emotion(img_path, visualize=False)
+            if result:
+                results.append({
+                    'image': img_path,
+                    'emotion': result['predicted_emotion'],
+                    'confidence': result['confidence']
+                })
+                print(f"{i+1}. {img_path}: {result['predicted_emotion']} ({result['confidence']:.1f}%)")
+        else:
+            print(f"{i+1}. {img_path}: ❌ Not found")
+    
+    # Create comparison visualization
+    if results:
+        fig, ax = plt.subplots(figsize=(12, 6))
+        
+        images = [r['image'] for r in results]
+        emotions = [r['emotion'] for r in results]
+        confidences = [r['confidence'] for r in results]
+        
+        bars = ax.bar(range(len(images)), confidences, color='skyblue', alpha=0.7)
+        ax.set_xlabel('Images')
+        ax.set_ylabel('Confidence (%)')
+        ax.set_title('Emotion Detection Comparison', fontweight='bold')
+        ax.set_xticks(range(len(images)))
+        ax.set_xticklabels([os.path.basename(img) for img in images], rotation=45, ha='right')
+        
+        # Add emotion labels on bars
+        for i, (bar, emotion, conf) in enumerate(zip(bars, emotions, confidences)):
+            height = bar.get_height()
+            ax.text(bar.get_x() + bar.get_width()/2., height + 1,
+                   f'{emotion}\n{conf:.1f}%', ha='center', va='bottom', fontsize=9)
+        
+        plt.tight_layout()
+        plt.show()
+    
+    return results
+
+# MAIN EXECUTION - Run this cell to train and test the model
+if __name__ == "__main__":
+    
+    print("🎬 STARTING ENHANCED EMOTION DETECTION SYSTEM")
+    print("=" * 60)
+    
+    # Verify configuration
+    print("🔧 Configuration Check:")
+    print(f"   Data directory: {CONFIG['DATA_DIR']}")
+    print(f"   Model will be saved as: {CONFIG['MODEL_NAME']}")
+    print(f"   Target image size: {CONFIG['TARGET_SIZE']}")
+    
+    # Check if data directory exists
+    if not os.path.exists(CONFIG['DATA_DIR']):
+        print(f"⚠️ Data directory not found: {CONFIG['DATA_DIR']}")
+        print("Please update the CONFIG['DATA_DIR'] path to your dataset location")
+    else:
+        print("✅ Data directory found")
+        
+        # Run complete training pipeline
+        try:
+            model, detector, class_names = run_training_pipeline()
+            
+            print("\n🎉 SUCCESS! Your enhanced emotion detection system is ready!")
+            print("\n📝 What you can do now:")
+            print("   1. Test single images: quick_emotion_test('your_image.jpg', detector)")
+            print("   2. Compare multiple images: compare_emotions(['img1.jpg', 'img2.jpg'], detector)")
+            print("   3. Batch process: detector.batch_detect(['img1.jpg', 'img2.jpg'])")
+            print("   4. Load saved model later: EnhancedEmotionDetector('enhanced_emotion_model_robust_py310.h5')")
+            
+        except Exception as e:
+            print(f"❌ Execution failed: {str(e)}")
+
+# Example usage cells - Run these after training
+
+# Test 1: Single image test
+# quick_emotion_test('your_test_image.jpg', detector)
+
+# Test 2: Compare multiple images
+# test_images = ['happy.jpg', 'sad.jpg', 'angry.jpg']
+# comparison_results = compare_emotions(test_images, detector)
+
+# Test 3: Batch processing
+# batch_results = detector.batch_detect(['image1.jpg', 'image2.jpg', 'image3.jpg'], save_results=True)
+
+def create_deployment_script():
+    """Create a standalone deployment script"""
+    
+    deployment_code = '''
+# Standalone Emotion Detection Deployment Script
+# Generated from Enhanced Emotion Detection Notebook
+
+import os
+import cv2
+import numpy as np
+import matplotlib.pyplot as plt
+from tensorflow.keras.models import load_model
+
+class EmotionDetectorDeployment:
+    """Lightweight emotion detector for deployment"""
+    
+    def __init__(self, model_path):
+        self.model = load_model(model_path)
+        self.face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+        self.class_names = ['angry', 'disgust', 'fear', 'happy', 'sad', 'surprise', 'neutral']
+    
+    def detect_emotion(self, image_path):
+        """Detect emotion from image"""
+        
+        # Load and preprocess image
+        img = cv2.imread(image_path)
+        rgb_img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        gray = cv2.cvtColor(rgb_img, cv2.COLOR_RGB2GRAY)
+        
+        # Detect face
+        faces = self.face_cascade.detectMultiScale(gray, 1.1, 5)
+        
+        if len(faces) > 0:
+            x, y, w, h = faces[0]
+            face = gray[y:y+h, x:x+w]
+        else:
+            # Fallback to center crop
+            h, w = gray.shape
+            size = min(h, w)
+            start_x, start_y = (w-size)//2, (h-size)//2
+            face = gray[start_y:start_y+size, start_x:start_x+size]
+        
+        # Preprocess for model
+        face = cv2.resize(face, (48, 48))
+        face = face.astype('float32') / 255.0
+        face = np.expand_dims(face, axis=0)
+        face = np.expand_dims(face, axis=-1)
+        
+        # Predict
+        predictions = self.model.predict(face)
+        emotion_idx = np.argmax(predictions)
+        emotion = self.class_names[emotion_idx]
+        confidence = predictions[0][emotion_idx] * 100
+        
+        return emotion, confidence
+
+# Usage example:
+# detector = EmotionDetectorDeployment('enhanced_emotion_model_robust_py310.h5')
+# emotion, confidence = detector.detect_emotion('test_image.jpg')
+# print(f"Emotion: {emotion}, Confidence: {confidence:.2f}%")
+'''
+    
+    with open('emotion_detector_deployment.py', 'w') as f:
+        f.write(deployment_code)
+    
+    print("📄 Deployment script created: emotion_detector_deployment.py")
+
+# Create deployment script
+create_deployment_script()
+
+def monitor_model_performance(detector, test_images):
+    """Monitor model performance across different image types"""
+    
+    performance_data = {
+        'high_confidence': 0,
+        'medium_confidence': 0, 
+        'low_confidence': 0,
+        'failed_detections': 0,
+        'emotion_distribution': {}
+    }
+    
+    print("📊 PERFORMANCE MONITORING")
+    print("=" * 40)
+    
+    for img_path in test_images:
+        if os.path.exists(img_path):
+            result = detector.detect_emotion(img_path, visualize=False)
+            
+            if result:
+                confidence = result['confidence']
+                emotion = result['predicted_emotion']
+                
+                # Confidence categorization
+                if confidence >= 70:
+                    performance_data['high_confidence'] += 1
+                elif confidence >= 50:
+                    performance_data['medium_confidence'] += 1
+                else:
+                    performance_data['low_confidence'] += 1
+                
+                # Emotion distribution
+                if emotion not in performance_data['emotion_distribution']:
+                    performance_data['emotion_distribution'][emotion] = 0
+                performance_data['emotion_distribution'][emotion] += 1
+                
+            else:
+                performance_data['failed_detections'] += 1
+    
+    # Display results
+    total_processed = sum([performance_data[key] for key in ['high_confidence', 'medium_confidence', 'low_confidence', 'failed_detections']])
+    
+    print(f"Total images processed: {total_processed}")
+    print(f"High confidence (≥70%): {performance_data['high_confidence']} ({performance_data['high_confidence']/total_processed*100:.1f}%)")
+    print(f"Medium confidence (50-70%): {performance_data['medium_confidence']} ({performance_data['medium_confidence']/total_processed*100:.1f}%)")
+    print(f"Low confidence (<50%): {performance_data['low_confidence']} ({performance_data['low_confidence']/total_processed*100:.1f}%)")
+    print(f"Failed detections: {performance_data['failed_detections']} ({performance_data['failed_detections']/total_processed*100:.1f}%)")
+    
+    print(f"\nEmotion Distribution:")
+    for emotion, count in performance_data['emotion_distribution'].items():
+        print(f"  {emotion}: {count}")
+    
+    return performance_data
+
+print("✅ NOTEBOOK SETUP COMPLETE!")
+print("🚀 Ready to train your enhanced emotion detection model!")
+print("\n📋 Next Steps:")
+print("1. Update CONFIG['DATA_DIR'] with your dataset path")
+print("2. Run the main execution cell (#14)")
+print("3. Test with your own images using the provided functions")
+print("4. Deploy using the generated deployment script")
+
+

@@ -1,0 +1,15 @@
+venv/
+.venv/
+node_modules
+.env
+logs/
+*.log
+data.sqlite
+*.db
+dist/
+build/
+# Ignore ML models and large data
+TARS/public/models/
+*.zip
+*.h5
+*.mdl
