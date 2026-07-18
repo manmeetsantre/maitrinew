@@ -37,8 +37,8 @@ RUN python -c "import whisper; whisper.load_model('small')"
 # Return to root workdir
 WORKDIR /app
 
-# Install ts-node globally to run Express server
-RUN npm install -g ts-node typescript @types/node
+# Install tsx globally to run Express server
+RUN npm install -g tsx typescript @types/node
 
 # Make the startup script executable
 RUN chmod +x start_space.sh

@@ -26,4 +26,4 @@ python voice_assistant.py &
 echo "Starting Main App..."
 cd /app
 export PORT=7860
-ts-node server/src/index.ts
+npx tsx server/src/index.ts

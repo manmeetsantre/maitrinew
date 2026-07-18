@@ -11,7 +11,7 @@
     "preview": "vite preview",
     
     "// SERVER SCRIPTS": "-----------------",
-    "server": "ts-node server/src/index.ts",
+    "server": "tsx server/src/index.ts",
     "dev:server": "tsx watch server/src/index.ts",
     "build:server": "tsc -p server/tsconfig.json",
     
